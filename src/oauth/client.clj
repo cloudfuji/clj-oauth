@@ -24,9 +24,10 @@
 (defn user-approval-uri
   "Builds the URI to the Service Provider where the User will be prompted
 to approve the Consumer's access to their account."
-  [consumer token]
+  [consumer token & [custom-params]]
   (str (:authorize-uri consumer)
-       "?" (httpclient/generate-query-string {:oauth_token token})))
+       "?" (httpclient/generate-query-string (merge {:oauth_token token}
+                                                    custom-params))))
 
 (defn authorization-header
   "OAuth credentials formatted for the Authorization HTTP header."
@@ -70,7 +71,9 @@ to approve the Consumer's access to their account."
 (defn post-request-body-decoded [url & [req]]
   (form-decode
    (:body (check-success-response
-           (httpclient/post url req)))))
+           (httpclient/post url (merge {:debug true
+                                        :debug-body true
+                                        } req))))))
 
 (defn credentials
   "Return authorization credentials needed for access to protected resources.
@@ -88,7 +91,7 @@ Authorization HTTP header or added as query parameters to the request."
                                                     sig/as-str
                                                     upper-case)
                                                 request-uri
-                                                 unsigned-params)
+                                                unsigned-params)
                                token-secret)]
        (assoc unsigned-oauth-params :oauth_signature signature))))
 
@@ -103,16 +106,20 @@ Authorization HTTP header or added as query parameters to the request."
 (defn request-token
   "Fetch request token for the consumer."
   ([consumer]
-     (request-token consumer nil))
+     (request-token consumer nil nil))
 
   ([consumer callback-uri]
+     (request-token consumer callback-uri nil))
+
+  ([consumer callback-uri custom-params]
      (let [unsigned-params (sig/oauth-params consumer
                                              (sig/rand-str 30)
                                              (sig/msecs->secs (System/currentTimeMillis)))
            unsigned-params (if callback-uri
                              (assoc unsigned-params
                                :oauth_callback callback-uri)
-                             unsigned-params)]
+                             unsigned-params)
+           unsigned-params (merge unsigned-params custom-params)]
        (get-oauth-token consumer (:request-uri consumer) unsigned-params))))
 
 (defn access-token
@@ -120,8 +127,10 @@ Authorization HTTP header or added as query parameters to the request."
   When provided with two arguments, this function operates as per OAuth 1.0.
   With three arguments, a verifier is used."
   ([consumer request-token]
-     (access-token consumer request-token nil))
+     (access-token consumer request-token nil nil))
   ([consumer request-token verifier]
+     (access-token consumer request-token verifier nil))
+  ([consumer request-token verifier params]
      (let [unsigned-params (if verifier
                              (sig/oauth-params consumer
                                                (sig/rand-str 30)
@@ -133,6 +142,7 @@ Authorization HTTP header or added as query parameters to the request."
                                                (sig/msecs->secs (System/currentTimeMillis))
                                                (:oauth_token
                                                 request-token)))
+           unsigned-params (merge unsigned-params params)
            token-secret (:oauth_token_secret request-token)]
        (get-oauth-token consumer (:access-uri consumer) unsigned-params token-secret))))
 
